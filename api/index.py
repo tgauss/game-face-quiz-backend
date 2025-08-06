@@ -147,38 +147,38 @@ class handler(BaseHTTPRequestHandler):
         """Handle POST requests"""
         path = self.path
         
-        # Read request body
-        content_length = int(self.headers.get('Content-Length', 0))
-        post_data = self.rfile.read(content_length)
-        
         try:
-            data = json.loads(post_data.decode())
-        except:
-            self.send_error_response(400, "Invalid JSON")
-            return
-        
-        # Set CORS headers
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        
-        if path == '/api/quiz/start':
-            response = self.handle_quiz_start(data)
-        elif path == '/api/quiz/submit':
-            response = self.handle_quiz_submit(data)
-        else:
-            self.send_response(404)
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "Not found"}).encode())
-            return
-        
-        # Send response
-        status_code = response.get('_status', 200)
-        if '_status' in response:
-            del response['_status']
+            # Read request body
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
             
-        self.send_response(status_code)
-        self.end_headers()
-        self.wfile.write(json.dumps(response).encode())
+            try:
+                data = json.loads(post_data.decode())
+            except:
+                self.send_error_response(400, "Invalid JSON")
+                return
+            
+            if path == '/api/quiz/start':
+                response = self.handle_quiz_start(data)
+            elif path == '/api/quiz/submit':
+                response = self.handle_quiz_submit(data)
+            else:
+                self.send_error_response(404, "Not found")
+                return
+            
+            # Send response
+            status_code = response.get('_status', 200)
+            if '_status' in response:
+                del response['_status']
+                
+            self.send_response(status_code)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(response).encode())
+            
+        except Exception as e:
+            self.send_error_response(500, f"Server error: {str(e)}")
     
     def handle_quiz_start(self, data):
         """Handle quiz start request"""
