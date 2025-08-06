@@ -32,22 +32,22 @@ QUIZ_CONFIG = {
     }
 }
 
-def get_user_email_from_session(session_id):
-    """Extract email from session ID"""
+def get_perk_id_from_session(session_id):
+    """Extract Perk ID from session ID"""
     try:
         parts = session_id.split('_')
         if len(parts) >= 2:
-            return parts[0]
+            return parts[0]  # Perk ID is now first part
     except:
         pass
     return None
 
-def has_completed_quiz(email, quiz_id):
+def has_completed_quiz(perk_id, quiz_id):
     """Check if user has already completed this quiz"""
-    key = f"{email}_{quiz_id}"
+    key = f"{perk_id}_{quiz_id}"
     return key in completed_quizzes
 
-def award_points(email, points, action_title, completion_limit=1):
+def award_points_by_perk_id(perk_id, points, action_title, completion_limit=1):
     """Award points to a user via Perk API"""
     
     headers = {
@@ -57,7 +57,7 @@ def award_points(email, points, action_title, completion_limit=1):
     }
     
     data = {
-        "email": email,
+        "participant_id": perk_id,  # Use Perk ID instead of email
         "points": points,
         "action_title": action_title,
         "action_source": "Interactive Quiz",
@@ -128,13 +128,13 @@ class handler(BaseHTTPRequestHandler):
             parsed = urllib.parse.urlparse(path)
             params = urllib.parse.parse_qs(parsed.query)
             
-            email = params.get('email', [None])[0]
+            perk_id = params.get('perk_id', [None])[0]
             quiz_id = params.get('quiz_id', [None])[0]
             
-            if not email:
-                response = {"error": "Email required"}
+            if not perk_id:
+                response = {"error": "Perk ID required"}
             elif quiz_id:
-                completed = has_completed_quiz(email, quiz_id)
+                completed = has_completed_quiz(perk_id, quiz_id)
                 response = {
                     "quiz_id": quiz_id,
                     "completed": completed
@@ -142,7 +142,7 @@ class handler(BaseHTTPRequestHandler):
             else:
                 status = {}
                 for qid in QUIZ_CONFIG:
-                    status[qid] = has_completed_quiz(email, qid)
+                    status[qid] = has_completed_quiz(perk_id, qid)
                 response = status
         else:
             response = {"error": "Not found"}
@@ -189,21 +189,21 @@ class handler(BaseHTTPRequestHandler):
     def handle_quiz_start(self, data):
         """Handle quiz start request"""
         quiz_id = data.get('quiz_id')
-        email = data.get('email')
+        perk_id = data.get('perk_id')
         
         if not quiz_id or quiz_id not in QUIZ_CONFIG:
             return {"error": "Invalid quiz ID", "_status": 400}
         
-        if not email:
-            return {"error": "Email required", "_status": 400}
+        if not perk_id:
+            return {"error": "Perk ID required", "_status": 400}
         
         # Create session ID
         timestamp = int(time.time())
-        session_data = f"{email}_{timestamp}_{quiz_id}"
+        session_data = f"{perk_id}_{timestamp}_{quiz_id}"
         session_id = hashlib.sha256(session_data.encode()).hexdigest()[:16]
         
         # Check if already completed
-        if has_completed_quiz(email, quiz_id):
+        if has_completed_quiz(perk_id, quiz_id):
             return {
                 "error": "Quiz already completed",
                 "message": "You have already completed this quiz and received your points.",
@@ -211,9 +211,10 @@ class handler(BaseHTTPRequestHandler):
             }
         
         return {
-            "session_id": f"{email}_{timestamp}_{session_id}",
+            "session_id": f"{perk_id}_{timestamp}_{session_id}",
             "quiz_config": QUIZ_CONFIG[quiz_id],
-            "message": "Quiz started successfully"
+            "message": "Quiz started successfully",
+            "perk_id": perk_id
         }
     
     def handle_quiz_submit(self, data):
@@ -230,13 +231,13 @@ class handler(BaseHTTPRequestHandler):
         if quiz_id not in QUIZ_CONFIG:
             return {"error": "Invalid quiz ID", "_status": 400}
         
-        # Get user email from session
-        email = get_user_email_from_session(session_id)
-        if not email:
+        # Get Perk ID from session
+        perk_id = get_perk_id_from_session(session_id)
+        if not perk_id:
             return {"error": "Invalid session", "_status": 401}
         
         # Check if already completed
-        if has_completed_quiz(email, quiz_id):
+        if has_completed_quiz(perk_id, quiz_id):
             return {
                 "error": "Quiz already completed",
                 "message": "You have already completed this quiz.",
@@ -253,8 +254,8 @@ class handler(BaseHTTPRequestHandler):
         # Check if passed
         if score >= passing_score:
             # Award points
-            success, message = award_points(
-                email,
+            success, message = award_points_by_perk_id(
+                perk_id,
                 quiz_config['points'],
                 quiz_config['action_title'],
                 quiz_config['completion_limit']
@@ -262,10 +263,11 @@ class handler(BaseHTTPRequestHandler):
             
             if success:
                 # Mark as completed
-                completed_quizzes[f"{email}_{quiz_id}"] = {
+                completed_quizzes[f"{perk_id}_{quiz_id}"] = {
                     "timestamp": datetime.now().isoformat(),
                     "score": score,
-                    "answers": answers
+                    "answers": answers,
+                    "perk_id": perk_id
                 }
                 
                 return {
@@ -461,15 +463,6 @@ class handler(BaseHTTPRequestHandler):
             padding: 40px 20px;
         }}
         
-        .email-input {{
-            width: 100%;
-            max-width: 350px;
-            padding: 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            font-size: 1.1em;
-            margin: 20px 0;
-        }}
         
         .score-display {{
             font-size: 4em;
@@ -623,7 +616,6 @@ class handler(BaseHTTPRequestHandler):
         let score = 0;
         let userAnswers = {{}};
         let sessionId = null;
-        let userEmail = null;
 
         // Initialize quiz
         function initQuiz() {{
@@ -632,30 +624,40 @@ class handler(BaseHTTPRequestHandler):
 
         // Show start screen
         function showStartScreen() {{
+            if (!PERK_ID || PERK_ID === 'None') {{
+                // No Perk ID - show error
+                const content = `
+                    <div class="start-screen">
+                        <h2>❌ Access Error</h2>
+                        <p>This quiz must be accessed through Perk to identify your account.</p>
+                        <div class="perk-info">
+                            <p><strong>Please launch this quiz from your Perk dashboard.</strong></p>
+                        </div>
+                        <a href="https://championsclub.perk.studio/" class="back-to-perk">
+                            🎯 Return to Perk
+                        </a>
+                    </div>
+                `;
+                document.getElementById('quizContent').innerHTML = content;
+                return;
+            }}
+            
             const content = `
                 <div class="start-screen">
                     <h2>Ready to Test Your Grooming Knowledge?</h2>
                     <p>Answer 5 questions correctly to earn 50 points!</p>
                     <p>You need at least 3 correct answers to pass.</p>
                     
-                    ${{PERK_ID ? `
-                        <div class="perk-info">
-                            <p><strong>Connected to your Perk account!</strong></p>
-                            <p>Points will be automatically added after completion.</p>
-                        </div>
-                    ` : ''}}
-                    
-                    <input type="email" 
-                           id="emailInput" 
-                           class="email-input" 
-                           placeholder="Enter your email to start"
-                           required>
+                    <div class="perk-info">
+                        <p><strong>✅ Connected to your Perk account!</strong></p>
+                        <p>Perk ID: {perk_id}</p>
+                        <p>Points will be automatically added after completion.</p>
+                    </div>
                     
                     <div id="errorMessage" class="error-message" style="display: none;"></div>
                     
-                    <br>
                     <button class="btn btn-primary" onclick="startQuiz()">
-                        Start Quiz
+                        🚀 Start Quiz
                     </button>
                 </div>
             `;
@@ -664,15 +666,10 @@ class handler(BaseHTTPRequestHandler):
 
         // Start quiz
         async function startQuiz() {{
-            const emailInput = document.getElementById('emailInput');
-            const email = emailInput.value.trim();
-            
-            if (!email || !email.includes('@')) {{
-                showError('Please enter a valid email address');
+            if (!PERK_ID || PERK_ID === 'None') {{
+                showError('Invalid Perk ID. Please access this quiz through Perk.');
                 return;
             }}
-            
-            userEmail = email;
             
             // Show loading
             const startBtn = document.querySelector('.btn-primary');
@@ -688,7 +685,6 @@ class handler(BaseHTTPRequestHandler):
                     }},
                     body: JSON.stringify({{
                         quiz_id: QUIZ_ID,
-                        email: userEmail,
                         perk_id: PERK_ID
                     }})
                 }});
@@ -703,6 +699,7 @@ class handler(BaseHTTPRequestHandler):
                 }}
                 
                 sessionId = data.session_id;
+                console.log('Quiz started successfully for Perk ID:', PERK_ID);
                 showQuestion();
                 
             }} catch (error) {{
