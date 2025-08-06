@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "functions": {
+    "server.py": {
+      "runtime": "@vercel/python"
+    }
+  },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "server.py"
+    }
+  ]
+}
